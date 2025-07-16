@@ -1,0 +1,559 @@
+---
+title: "Statistical Modelling for Epidemiology Project"
+author: "Alexander Osegbe O."
+date: "2024-06-25"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+
+# Load packages 
+library(tidyverse)
+library(survival) 
+library(survminer) 
+library(ggsurvfit)
+library(broom)
+library(kableExtra)
+library(knitr)
+library(ggcorrplot)
+
+
+# Import the data
+airex_raw <- read_csv("AireXassignment.csv") 
+
+```
+
+# The Research Context
+The AIRE trial randomised patients with clinical heart failure after an acute myocardial infarction to either placebo or Ramipril, an ACE-inhibitor. After an average follow-up of 15 months, the trial provided evidence of a 5% decrease in all-cause mortality associated with active treatment.
+
+The AIREX study was designed to investigate whether that benefit persisted for a longer period, after Ramipril had been stopped in the active treatment group – i.e. all patients were monitored only under usual care. This added an extra 3 years of follow-up of the UK patients. That is, follow up was extended from 28/2/1993, the close of the AIRE Study, to 28/2/1996.
+
+# Project Goals
+The data for these 603 research participants (a subset of the available patients) can be found in the comma-separated values format file **AireXassignment.csv**. The file contains an extract of the data from the AIRE-X Study. For the purpose of these analysis, ignore the fact that the study medication was only taken for around 12 months on average. The analysis is looking at the long term benefits of relatively short term treatment. Use these data to investigate a number of possible risk factors for mortality, both individually and jointly (as outlined in the project task document), and summaries your findings.
+
+# Task 1 
+
+## Data Preparation
+```{r}
+
+# change age to categorical variable for categorical comparisons
+airex_new <- airex_raw %>%
+  mutate(
+    agecat = cut(
+      agerand,
+      breaks         = c(0, 50, 75, Inf),
+      labels         = c("<50", "50-74", "≥75"),
+      right          = FALSE,
+      ordered_result = TRUE
+    )
+  )
+
+# or
+
+airex_new <- airex_raw %>%
+  mutate(
+    agecat = case_when(
+      agerand < 50  ~ "<50",
+      agerand < 75  ~ "50-74",
+      TRUE          ~ "≥75"
+    ) %>%
+    factor(levels = c("<50", "50-74", "≥75"), ordered = TRUE)
+  )
+
+
+# Recode values meaningfully and select variables
+airex_new <- airex_new %>%
+  mutate(sex=factor(sex,labels = c("Male","Female")),
+         ms=factor(ms,labels=c("Alive","Dead")),
+         hyp=factor(hyp,labels=c("No","Yes")),
+         ang=factor(ang,labels=c("No","Yes")),
+         pmi=factor(pmi,labels=c("No","Yes")),
+         thromb=factor(thromb,labels=c("No","Yes")),
+         aspirin=factor(aspirin,labels=c("No","Yes")),
+         diuret=factor(diuret,labels = c("No","Yes")),
+         treat=factor(treat,labels = c("Placebo","Ramipril"))
+         ) %>% 
+  select(agecat,
+         survivtm,
+         ms,
+         sex,
+         ang,
+         hyp,
+         pmi,
+         thromb,
+         aspirin,
+         diuret,
+         treat)
+```
+
+
+## Methods and Justification
+Task 1 will use Kaplan-Meier based Log-Rank test to investigate the association between time to mortality and baseline characteristics. A combination of these methods will be used mainly to compare survival experiences of several groups and to evaluate the effectiveness of the randomized treatment. Kaplan-Meir plots alongside risk tables will respectively visualize and present numerical summaries of the associations from the test. Beyond providing the basis of comparing survival probabilities and treatment effect, Kaplan-Meir methods are useful in identifying prognostic factors and comparing survival rates. They are easy to interpret, accounts for censoring, are robust and makes no restrictive assumptions on normality. 
+
+## Results
+
+### Age
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ agecat, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+# scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80))) +
+  labs(
+    title = "Association Between Time to Mortality and Age Category",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+<50 years (red line)
+This group shows the highest survival probability throughout. Afterward, the decline slows, and by 80 months, survival probability is just close to 70%. Since the curve never drops below 50%, the median survival time exceeds 80 months. The small cohort size (48 at the start) and few events (6 by 80 months) indicate a relatively favorable outcome for survivors past the initial drop.
+
+50-74 years (green line)
+This group shows with a slow, steady decline. It remains above 70% for the first 40 months and reaches about 60% by 80 months. The median survival time is also greater than 80 months, as the curve stays above 50%. Frequent censoring between 40 and 70 months and a large initial cohort (467) with 151 events by 80 months suggest some uncertainty in later estimates due to loss to follow-up, but overall, this group has the best prognosis. The green line (50-74 years) has the most censoring marks, especially between 40 and 60 months, suggesting many individuals in this group were no longer tracked during this period.
+
+≥75 years (blue line)
+This group has the poorest survival outcome, with a steep decline in the first 20 months and a median survival time of approximately 55 months (where the curve crosses 50%). A sharp drop around 70 months brings survival probability to just above 25% by 80 months. With 88 individuals initially and 43 events by 80 months, and no one at risk by the end—all individuals either died or were censored, reflecting a significantly higher mortality risk in this older age group.
+
+### Sex
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ sex, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+# scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and Sex Category \n Stratified by Randomised Treatment",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Male
+This group shows higher survival probability throughout with survival prob. at 60% by the 80th month. The most censoring marks, especially between 40 and 70 months, suggesting many individuals in this group were no longer tracked during this period. A large initial cohort (455) with 148 events by 80 months suggest some uncertainty in later estimates due to loss to follow-up, but overall, this group has the best prognosis.
+
+Female
+Here the survival is slightly poorer with survival prob. at 55% by the end of the 80th month. The median survival time wasn't also reached before the last month. An initial cohort (148) with 152 events by 80 months and 0 at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+### History of Hypertension
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ hyp, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+  scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and Hypertension History",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+No
+This group shows the good survival probability. Afterward, the decline slows, and by 80 months, survival probability is around 60%. Since the curve never drops below 50%, the median survival time exceeds 80 months. The large cohort size (456 at the start) and high events (134 by 80 months) indicate a poor outcome for survivors past the initial drop. The most censoring marks, especially between 40 and 60 months, suggesting many individuals in this group were no longer tracked during this period.
+
+Yes
+This group has a poor survival outcome, by the 70th month, the survival probability was 50% (median). At month 80, the survival probability was 40%, with 147 individuals initially and 66 events by 80 months, and only one at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+### History of Angina
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ ang, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+  scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and History of Angina",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+No
+This group shows the good survival probability. Afterward, the decline slows, and by 80 months, survival probability is around 60%. Since the curve never drops below 50%, the median survival time exceeds 80 months. The large cohort size (390 at the start) and high events (109 by 80 months) indicate a poor outcome for survivors past the initial drop. The most censoring marks, especially between 40 and 70 months, suggesting many individuals in this group were no longer tracked during this period.
+
+Yes
+This group has a poor survival outcome, by the 70th month, the survival probability was 50% (median). At month 80, the survival probability was still 50%, with 213 individuals initially and 91 events by 80 months, and only one person at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+
+### History of Previous Myocardical Infaction(MI)
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ pmi, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+  scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and Previous MI",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+No
+This group shows the good survival probability. Afterward, the decline slows, and by 80 months, survival probability is around 60%. Since the curve never drops below 50%, the median survival time exceeds 80 months. The large cohort size (450 at the start) and high events (129 by 80 months) indicate a poor outcome for survivors past the initial drop. The most censoring marks, especially between 40 and 70 months, suggesting many individuals in this group were no longer tracked during this period.
+
+Yes
+This group has a poor survival outcome, by the 60th month, the survival probability was 50% (median). At month 80, the survival probability was around 35%, with 153 individuals initially and 71 events by 80 months, and no person at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+### Use of Thrombolysis
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ thromb, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+  scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and Thrombolysis",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+YES
+This group shows the good survival probability. Afterward, the decline slows, and by 80 months, survival probability is 60%. Since the curve never drops below 50%, the median survival time exceeds 80 months. The large cohort size (182 at the start) and high events (88 by 80 months) indicate a poor outcome for survivors past the initial drop. The most censoring marks, especially between 40 and 70 months, suggesting many individuals in this group were no longer tracked during this period.
+
+NO
+This group has a poor survival outcome, by the 60th month, the survival probability was 50% (median). At month 80, the survival probability was around 40%, with 421 individuals initially and 112 events by 80 months, and only 3 person at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+### Concomitant Aspirin
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ aspirin, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+  scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+  labs(
+    title = "Association Between Time to Mortality and Aspirin Uptake",
+    y = "Survival Percentage",
+    x = " Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Yes
+This group shows the good survival probability. Afterward, the decline slows, and by 80 months, survival probability is around 55%. The curve never drops below 50%, the median survival time exceeds 80 months. The  cohort size (508 at the start) and high events (163 by 80 months) indicate a poor outcome for survivors past the initial drop. The most censoring marks, especially between 40 and 70 months, suggesting many individuals in this group were no longer tracked during this period.
+
+No
+This group has a slightly poor survival outcome but almost same as the first group, by the 80th month, the survival probability was 50% (median). With 95 individuals initially and 37 events by 80 months, and no person at risk by the end. All individuals either died or were censored, reflecting a significantly higher mortality risk in this group.
+
+### Concomitant Diuretics
+
+```{r}
+survfit2(Surv(survivtm, ms == "Dead") ~ diuret, data = airex_new) %>% 
+  ggsurvfit(theme = theme_ggsurvfit_default()) +
+  add_censor_mark(size = 2, alpha = 0.2) +
+  add_quantile(y_value = 0.5, linetype = "dotted", color = "grey30", linewidth = 0.8) +
+  add_risktable(risktable_stats = "{n.risk} ({cum.event})", hjust = 0) +
+# scale_ggsurvfit(x_scales = list(breaks = c(0,20,40,60,80)))+
+   labs(
+    title = "Association Between Time to Mortality and Diuretics Uptake",
+    y = "Survival Percentage",
+    x = "Survival Months"
+  )+
+  theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+No
+This group shows a better survival probability. Afterward, the decline slows, and by 80 months, survival probability is slightly above 60%. The median survival time exceeds 80 months. The cohort size (193 at the start) and events (49 by 80 months) indicate a poor outcome for survivors past the initial drop. 
+
+Yes
+This group has a poorer survival outcome. At month 80, the survival probability was slightly above 50%, with 410 individuals initially and 151 events by 80 months, and only 4 person at risk by the end. All individuals either died or were censored (lager censor btw 40 and 70 month), reflecting a significantly higher mortality risk in this group.
+
+\newpage
+
+# Task 2
+
+## Methods and Justification
+
+Log-Rank tests will be used to assess evidence of association between baseline characteristics and time to mortality. Where global significant differences exist, pair-wise comparisons will be applied to determine specific differences. For all the tests, the null hypothesis is that that the survival experiences between levels or groups are not different and that Ramipril makes no significant difference. Major strength of the test is that it can be used to compare two or more groups without making restrictive assumptions on normality. 
+
+## Results
+
+### Age: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ agecat, data = airex_new) #|> 
+#  tidy() |> 
+#  kable()
+```
+
+The Table indicates there is a possible benefits of Age. 
+
+More deaths were observed in the placebo group than expected (117 observed vs. 95 expected), while fewer deaths were observed in the agecat≥75 (43 observed vs. 27.4 expected).
+
+Since other group had fewer observed deaths than expected, and the difference is statistically significant (Chisq= 17, P=0.00002), we can conclude that the probability of survival is can be influenced by the category of age group.
+
+### Sex: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ sex, data = airex_new) |> 
+  tidy() |> 
+  kable()
+```
+
+The Table indicates no possible benefits of sex or gender. 
+
+few deaths were observed in the male group than expected (148 observed vs. 151.9 expected), while more deaths were observed in the females (52 observed vs. 48.1 expected).
+
+Since female had slightly higher observed deaths than expected, and the difference is not statistically significant (Chisq= 0.4, P= 0.5), we can conclude that the probability of survival may not be influenced by the category of sex
+
+
+### History of Hypertension: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ hyp, data = airex_new) |> 
+  tidy() |> 
+  kable()
+
+```
+The Table indicates there is a possible benefits of having a history of hypertension. 
+
+Fewer deaths were observed in the No group than expected (134 observed vs. 155.6 expected), while more deaths were observed in the people with hypertension (66 observed vs. 44.4 expected).
+
+Since Yes group had higher observed deaths than expected, and the difference is not statistically significant (Chisq= 13.5, P= 0.00002), we can conclude that the probability of survival may be influenced by the category of hypertension history.
+
+
+### History of Angina: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ ang, data = airex_new) |> 
+ tidy() |> 
+ kable()
+```
+
+The Table indicates there is a possible benefits of having a history of angina. 
+
+Fewer deaths were observed in the No group than expected (109 observed vs. 133.5 expected), while more deaths were observed in the people with angina (91 observed vs. 66.5 expected).
+
+Since the Yes group had higher observed deaths than expected, and the difference is statistically significant (Chisq= 13.6, P= 0.00002), we can conclude that the probability of survival may be influenced by the category of hypertension history.
+
+
+### History of Previous MI: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ pmi, data = airex_new)
+```
+
+A global P-value = 1e-θ4 indicate significant group differences.
+
+The Table indicates there is a possible benefits of having previous myocardial infraction. 
+
+Fewer deaths were observed in the No MI than expected (129 observed vs. 152.3 expected), while more deaths were observed in the people with history of MI (71 observed vs. 47.7 expected).
+
+Since the Yes group had higher observed deaths than expected, and the difference is statistically significant (Chisq= 15, P= 0.00001), we can conclude that the probability of survival may be influenced by the category of previous MI history.
+
+### Use of Thrombolysis: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ thromb, data = airex_new) |> 
+  tidy() |> 
+  kable()
+
+```
+
+A global P-value = 4e-θ7 suggest some group differences exist overall.
+
+The Table indicates there is a possible benefits of having a thromolysis medications. 
+
+More deaths were observed in the No thromobolysis than expected (88 observed vs. 56 expected), while fewer deaths were observed in the people who took thromobolysis (112 observed vs. 144 expected).
+
+Since the No group had more observed deaths than expected, and the difference is statistically significant (Chisq= 25.5, P= 0.00000001), we can conclude that the probability of survival may be influenced by having thombolysis.
+
+### Concomitant Aspirin: global Log-Rank Test
+
+```{r}
+
+survdiff(Surv(survivtm, ms == "Dead") ~ aspirin, data = airex_new) |> 
+  tidy() |> 
+  kable()
+
+```
+
+A global P-value = 0.2 indicate no potential group differences.
+
+The Table indicates there is no possible benefits of having aspirin. 
+
+Fewer deaths were observed in the Yes aspirin than expected (163 observed vs. 169.1 expected), while more deaths were observed in the people who took aspirin (37 observed vs. 30.9 expected).
+
+The difference is statistically not significant (Chisq= 1.4, P= 0.2 so we can conclude that the probability of survival may not be influenced by the category of previous MI history.
+
+
+### Concomitant Diuretics: global Log-Rank Test
+
+```{r}
+survdiff(Surv(survivtm, ms == "Dead") ~ diuret, data = airex_new) |> 
+  tidy() |> 
+  kable()
+
+```
+
+A global P-value = 0.01 suggest some group differences exist overall.
+
+The Table indicates there is a possible benefits of having a diuretic medication. 
+
+More deaths were observed in the yes diuretic than expected (151 observed vs. 134.2 expected), while fewer deaths were observed in the no diuretic (49 observed vs. 65.8 expected).
+
+Since the No group had more observed deaths than expected, and the difference is statistically significant (Chisq= 6.4, P= 0.01), we can conclude that the probability of survival may be influenced by having duretic.
+
+-----
+
+\newpage
+
+# 3.0: Task 3
+
+## Methods and Justification
+
+The Cox proportional hazards regression model will be used to model time to mortality in terms of randomised treatment and significant baseline characteristics. The model is preferred because among several survival analysis methods, it can be extended to assess several adjustment factors and effect modification simultaneously, to survival time without making restrictive assumptions about the shape underlying survival distribution. On this task, the model will be used measure the hazard rate or the risk of death given that randomised patients survived up to a certain point. It will be used for group comparisons with respect to their Hazard Ratios (HR). The final model is going to be derived using evidence from preceding tasks where significant main effects and interaction terms associated with time to mortality stratified by the randomised treatment will be selected using backward elimination approach. 
+
+## Results
+
+### Model Building
+
+```{r, eval=FALSE}
+
+# Model building and variable selectio
+model<-coxph(Surv(survivtm,ms=="Dead")
+               ~treat+agecat+hyp+ang+pmi+thromb+aspirin+diuret+sex+
+               treat:sex+treat:pmi+treat:diuret+treat:agecat+treat:aspirin+treat:ang+treat:thromb+treat:hyp,
+                data=airex_new)
+
+summary(model)
+```
+
+After fitting all candidate main effects and interaction terms, sex, and previous MI, angina and pmi were removed from the model because they are not contributing significantly.
+
+### Selected Project Model
+
+significant covariates with interactions term with randomised treatment or we just select significant variables from the log rank test. Anyways, lets select based on previous model output
+```{r}
+# Final Model
+model_1<-coxph(Surv(survivtm,ms=="Dead")
+               ~treat+hyp+agecat+diuret+thromb+pmi+
+                treat:hyp+treat:agecat+treat:diuret+treat:thromb,data=airex_new)
+
+summary(model_1)
+```
+
+
+### Variable Selection method
+A step-wise variable selection to select suitable additional covariate variables.
+ 
+### Result
+```{r warning=FALSE, eval=FALSE}
+Airex1 <- airex_new %>% #assign new object
+  drop_na(agecat) #drop NA to proceed for variable selection
+
+Airexstep <-step(
+  glm(ms~treat,family="binomial",data = Airex1), 
+  # Starting model - usual lm call since modelling continuous variable 
+  scope=list(lower=.~1, # Allows all variables to be removed, leaving only intercept (~1)
+             upper=.~.+agecat+sex+hyp+ang+pmi+thromb+aspirin+diuret), # Allows 4 additional variables (over and above starting model) to be fitted
+  direction="both")
+
+summary(Airexstep) # Final model will includes agerand, hyp, thromb, ang and treat group.
+drop1(Airexstep,test = "Chisq") # Adjusted for the other 4 variables.
+cbind(OR=exp(Airexstep$coefficients),exp(confint(Airexstep))) # ORs and 95%CI
+```
+The following variables: *agecat, thromb, hyp, pmi, diuret* together with the randomised treatment variable *(treat)* are statistically significant. Looking at the strength of p_value and confidence band; *treat, thromb, agecat* variables, they sequentially appears to have more significant influence on the model variable; Mortality status. From the analysis of deviance table, agerand, hyp, pmi and thromb are significant together with treat variable. 
+Therefore, thromb, agercat variables will be used as additional covaraite together with the randomised treatment variable.
+
+
+### 3.1.3: Cox Proportional Hazards Model
+This a semi non-parametric test, another useful function in the context of survival analyses is the hazard function. It describes the probability of an event or its hazard (again, survival in this case) if the subject survived up to that particular time point. Cox proportional hazards models allow you to include multiple covariates and also checks for interactions with key covariate. You can build Cox proportional hazards models using the coxph function.
+The statistical significance used is 5% with 95% Confidence interval.
+
+### 3.2.3 Result
+Additional covariates interaction with key covariates, using the model_1 selections
+
+It is necessary to note that the age at randomisation covariate is a continuous variable unlike other additional covariates. Therefore no reference group.
+```{r warning=FALSE}
+airex.ph<-coxph(Surv(survivtm, ms=="Dead") ~ treat + agecat + thromb + hyp + pmi + diuret +
+    treat:agecat + treat:thromb + treat:hyp + treat:pmi + treat:diuret, data = airex_new)
+
+summary(airex.ph)
+```
+Out of 602 Observations, 200 people had events.
+
+**Interpretation** 
+The Cox model shows that:
+
+1.  **Ramipril** significantly reduces the hazard of death compared to the placebo, with a hazard ratio (HR 0.51; CI 0.052, 4.90). This means the risk of death for the Ramipril group is about 49% lower risk of death compared to placebo group. However, the result is not statistically significant with a p-value = 0.22 and also has a wide confidence interval. Although, there may an indication of a beneficial effect of Ramipril on survival, it not statistically significant.
+
+2.  **Agecat**: Here, ageat of 55-74 has high hazard ratio (HR 2.7; CI 1.16, 6.33) of death from heart failure with over 2x. The result is statistically significant (p-value < 0.05), indicating a slight negative effect on survival. For every unit change of Age there is about 4% increase in death hazard. This could mean older people btw age 50 and 70 could be at high risk.
+
+3.  **The use of thrombolysis** significantly reduces the hazard of death compared to to the reference group, with a hazard ratio (HR 0.49; CI 0.34, 0.70). This means the risk of death from heart failure is reduced by 51% in the  Thrombolysis use group as compared to the no thrombolysis group. The effect is statistically significant with p-value = 0.00014, indicating a beneficial effect of thrombolysis on survival.
+
+We can still go futher to explain other covariates
+
+
+**Randomised Treatment interaction with other Covariates**: The interaction of the randomised treatment with other covaraite are all not statistically significant, indicating that interaction between Ramipril and other present covaraites has no significant effect compared to the interaction between placebo and reference covariates (P > 0.05). Although their hazard ratio are relatively normal or approximately 1. Therefore interaction coveariates with the RT may not be effective in reducing the hazard of death.
+
+----
+
+\newpage
+
+
+# Task 4
+Assessing and discuss the assumptions made by the model in Task 3.
+
+## 4.1: Methods
+Assumption check for Cox Proportional Hazards Model. It assumes that the ratio of risk is stable over time. The statistical significance used is 5% with 95% Confidence interval
+
+## 4.2: Results
+
+### 4.2.1: Assumption check for Cox Proportional Hazards Model
+```{r task 4, fig.height=10, fig.width=12, warning=FALSE}
+# PH test produces 7 checks, 1 for each parameter, and therefore there are 9 possible smoothed residuals plots
+cox.zph(airex.ph)
+# The survminer ggcox.zph function handles the extra complexity of having 9 parameters, and produces a plot for each.
+ggcoxzph(fit=cox.zph(airex.ph),point.col="seagreen",point.size=1,caption="Model with Randomised Treatment by Age, Hypertenstion history, Previous MI, Thrombolysis etc., use and Interactions", ggtheme = theme_bw() +  theme(panel.grid = element_blank()))
+```
+
+The cox.zph test results suggest that the proportional hazards assumption holds, meaning it is reasonable to assume proportional hazards in all cases. The scaled Schoenfeld residual plot shows no systematic patterns over time, further supporting the validity of the assumption with all P values > 0.05.
+The PH assumption is reasonable for each one of the parameters here, so the model is acceptable overall,
+and we have some evidence of effect modification.
+
+----
+
+\newpage
+
+
+# Task 5
+Final conclusions on the effect of Ramipril on all-cause mortality from the AIRE-X study 
+
+### Conclusion
+
+Evidence deduced from the model, Log-Rank tests and the Kaplan-Meir methods at the very least suggest that the effectiveness of the ACE inhibitors, Ramipril varies mostly depends on whether or patients are on additional medications. For instance, if patients are severe, possibly denoted by the use of diuretics, Ramipril can significantly reduce their susceptibility to mortality. In contrast, no active treatment whilst on diuretics heightens mortality. This may suggest that tolerance between the two drug types because their combined use has been proven to reduce mortality and hospitalisation rates even in clinical settings. However, unlike diuretics, non-consumption of Aspirin whilst on Ramipril gives patients significant and better survival prospects compared to Aspirin use. This may suggest antagonism between the Ace inhibitor and the painkiller.
+
+In as much as Ramipril is somehow effective depending interactions with other medications, its impact on MI history and gender could not be statistically authenticated by the model despite the Log-Rank tests suggesting that active treatment can significantly improve survival for patients with previous MI history as well as males. However, age, histories of Angina and Hypertension associations with mortality vis-à-vis Ramipril were constantly insignificant. Overall, Ramipril can be potentially effective on all-cause mortality but that well depends on how well additional supplementary medications interact with Ramipril.
